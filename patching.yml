@@ -1,39 +1,48 @@
 ---
 #### Ansible Playbook to perform Kernel Patching on RHEL/CentOS and Ubuntu/Debian Servers ####
 
-    - name:  Task 1 - verify web/database processes are not running
-      shell: if ps -eaf | egrep 'disp+work|apache|http|nginx|mysql|postgresql|mariadb'|grep -v grep > /dev/null ;then echo 'process_running';else echo 'process_not_running';fi
-      ignore_errors: true
-      register: app_process_check
+- name:  Task 1 - verify web/database processes are not running
+  shell: if ps -eaf | egrep 'disp+work|apache|http|nginx|mysql|postgresql|mariadb'|grep -v grep > /dev/null ;then echo 'process_running';else echo 'process_not_running';fi
+  ignore_errors: true
+  register: app_process_check
 
-    - name:  Task 2 - decision point to start patching
-      fail: msg="{{ inventory_hostname }} have running Application. Please stop the application processes first, then attempt patching."
-      when: app_process_check.stdout == "process_running"
+- name:  Task 2 - decision point to start patching
+    fail: msg: "{{ inventory_hostname }} have running Application. Please stop the application processes first, then attempt patching."
+    when: app_process_check.stdout == "process_running"
 
-    - name: Task 3 - Update all packages on OpenSUSE/SUSE Linux
-      zypper:
-        name: 'security'
-        state: latest
+- name: Get packages that can be upgraded
+  become: yes
+  ansible.builtin.dnf:
+    list: upgrades
+    state: latest
+    update_cache: yes
+  register: reg_dnf_output_all
+  when: ev_security_only == "no"
 
-    - name: Check if reboot is needed
-      register: linux_reboot_required_file
-      stat: path=/boot/do_purge_kernels get_md5=no
+- name: Check if reboot is needed
+   register: linux_reboot_required_file
+   stat: path=/boot/do_purge_kernels get_md5=no
 
-    - name: Reboot the SUSE/OpenSUSE box if kernel updated
-       reboot:
-        msg: "Reboot initiated by Ansible for kernel updates"
-        connect_timeout: 5
-        reboot_timeout: 300
-        pre_reboot_delay: 0
-        post_reboot_delay: 30
-        test_command: uptime
-        when: linux_reboot_required_file.stat.exists
+- name: Reboot the SUSE/OpenSUSE box if kernel updated
+    reboot:
+      msg: "Reboot initiated by Ansible for kernel updates"
+      connect_timeout: 5
+      reboot_timeout: 300
+      pre_reboot_delay: 0
+      post_reboot_delay: 30
+      test_command: uptime
+      when: linux_reboot_required_file.stat.exists
       
-    - name: Request user confirmation
-      ansible.builtin.pause:
-        prompt: | 
+- name: Request user confirmation
+    ansible.builtin.pause:
+      prompt: | 
  
-      The packages listed above will be upgraded. Do you want to continue ? 
-      -> Press RETURN to continue.
-      -> Press Ctrl+c and then "a" to abort.
-      when: reg_dnf_output_all is defined or reg_dnf_output_secu is defined
+       The packages listed above will be upgraded. Do you want to continue ? 
+       -> Press RETURN to continue.
+       -> Press Ctrl+c and then "a" to abort.
+       when: reg_dnf_output_all is defined or reg_dnf_output_secu is defined
+
+- name: Print errors if upgrade failed
+    ansible.builtin.debug:
+      msg: "Packages upgrade failed"
+      when: reg_upgrade_ok is not defined
